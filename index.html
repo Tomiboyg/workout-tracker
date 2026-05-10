@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="Workout"/>
+  <meta name="theme-color" content="#09090f"/>
+  <title>Workout Tracker</title>
+  <link rel="stylesheet" href="style.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+  <!-- Supabase CDN - no installation needed -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════ SETUP SCREEN -->
+<div id="setup-screen" class="hidden">
+  <div class="setup-box">
+    <div class="setup-logo">🏋️</div>
+    <h1 class="setup-title">Workout Tracker</h1>
+    <p class="setup-sub">Vlož svoje Supabase prihlasovacie údaje pre ukladanie dát do cloudu.</p>
+
+    <div class="setup-steps">
+      <div class="setup-step">
+        <span class="step-num">1</span>
+        <span>Choď na <a href="https://supabase.com" target="_blank">supabase.com</a> → New project</span>
+      </div>
+      <div class="setup-step">
+        <span class="step-num">2</span>
+        <span>Settings → API → skopíruj URL a anon key</span>
+      </div>
+      <div class="setup-step">
+        <span class="step-num">3</span>
+        <span>SQL Editor → spusti init script (tlačidlo nižšie)</span>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <label>Supabase Project URL</label>
+      <input id="sb-url" type="url" placeholder="https://xxxxxxxxxxxx.supabase.co"/>
+    </div>
+    <div class="field-group">
+      <label>Supabase Anon Key</label>
+      <input id="sb-key" type="text" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."/>
+    </div>
+
+    <button class="btn-sql" onclick="showSQLModal()">📋 Zobraziť SQL init script</button>
+    <button class="btn-connect" onclick="connectSupabase()">Pripojiť a začať →</button>
+    <p id="setup-error" class="setup-error"></p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ SQL MODAL -->
+<div id="sql-modal" class="modal-overlay hidden" onclick="closeSQLModal(event)">
+  <div class="modal-box">
+    <div class="modal-header">
+      <span>SQL Init Script</span>
+      <button onclick="closeSQLModal()" class="modal-close">✕</button>
+    </div>
+    <p class="modal-desc">Skopíruj a spusti v Supabase → SQL Editor → New query</p>
+    <pre class="sql-code" id="sql-code">create table if not exists workouts (
+  id bigint primary key,
+  name text,
+  date text,
+  duration int,
+  exercises jsonb
+);
+
+create table if not exists custom_exercises (
+  id bigint primary key,
+  name text,
+  group_name text
+);</pre>
+    <button class="btn-copy" onclick="copySQL()">📋 Kopírovať SQL</button>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ MAIN APP -->
+<div id="app" class="hidden">
+
+  <!-- TABS -->
+  <nav class="tab-bar">
+    <button class="tab-btn active" data-tab="home" onclick="switchTab('home')">
+      <svg viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+      <span>Home</span>
+    </button>
+    <button class="tab-btn" data-tab="workout" onclick="switchTab('workout')">
+      <svg viewBox="0 0 24 24"><path d="M6.5 6.5h11M6.5 17.5h11M3 9.5l3-3 3 3M3 14.5l3 3 3-3M18 9.5l-3-3-3 3M18 14.5l-3 3-3-3"/></svg>
+      <span>Tréning</span>
+    </button>
+    <button class="tab-btn" data-tab="history" onclick="switchTab('history')">
+      <svg viewBox="0 0 24 24"><path d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span>História</span>
+    </button>
+    <button class="tab-btn" data-tab="progress" onclick="switchTab('progress')">
+      <svg viewBox="0 0 24 24"><path d="M3 3v18h18M7 16l4-4 4 4 4-4"/></svg>
+      <span>Progress</span>
+    </button>
+  </nav>
+
+  <!-- HOME TAB -->
+  <div id="tab-home" class="tab-content active">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Dashboard</h1>
+        <p class="page-sub" id="home-date"></p>
+      </div>
+      <button class="btn-ghost btn-sm" onclick="logout()" title="Odpojiť Supabase">⚙️</button>
+    </div>
+    <div class="stats-grid" id="stats-grid"></div>
+    <div class="card" id="top-prs-card" style="display:none">
+      <div class="card-label">🏆 Top e1RM rekordy</div>
+      <div id="top-prs-list"></div>
+    </div>
+    <div class="card empty-state" id="home-empty" style="display:none">
+      <div class="empty-icon">🚀</div>
+      <div class="empty-title">Začni prvý tréning!</div>
+      <div class="empty-sub">Klikni na Tréning tab nižšie</div>
+    </div>
+    <div class="card info-card">
+      <div class="info-title">💡 Ako funguje e1RM?</div>
+      <div class="info-text">Estimated 1RM sa počíta z každej série pomocou <strong>RPE-upravenej Epley formuly</strong>. Zadaj váhu, repy a RPE — appka odhadne tvoje maximum.</div>
+      <code class="formula">e1RM = váha / RPE_percent[reps][rpe]</code>
+    </div>
+  </div>
+
+  <!-- WORKOUT TAB -->
+  <div id="tab-workout" class="tab-content">
+    <!-- No active workout -->
+    <div id="no-workout">
+      <div class="page-header">
+        <div>
+          <h1 class="page-title">Workout</h1>
+          <p class="page-sub" id="workout-date"></p>
+        </div>
+      </div>
+      <div class="card empty-state">
+        <div class="empty-icon">🏋️</div>
+        <div class="empty-title">Pripravený?</div>
+        <div class="empty-sub">Zaznamenaj každú sériu, rep a váhu</div>
+        <button class="btn-primary" onclick="startWorkout()">+ Začni tréning</button>
+      </div>
+      <div class="card" id="last-workout-card" style="display:none">
+        <div class="card-label">Posledný tréning</div>
+        <div id="last-workout-content"></div>
+      </div>
+    </div>
+
+    <!-- Active workout -->
+    <div id="active-workout" style="display:none">
+      <div class="active-header">
+        <div class="active-name-row">
+          <input id="workout-name-input" class="workout-name-input" type="text" value=""/>
+          <button class="btn-icon-danger" onclick="discardWorkout()" title="Zahodiť">🗑</button>
+        </div>
+        <div class="active-tags" id="active-tags"></div>
+      </div>
+      <div id="exercise-list"></div>
+      <div class="action-row">
+        <button class="btn-secondary" onclick="openPicker()">+ Pridaj cvik</button>
+        <button class="btn-primary" id="finish-btn" onclick="finishWorkout()">✓ Ukonči tréning</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HISTORY TAB -->
+  <div id="tab-history" class="tab-content">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">História</h1>
+        <p class="page-sub" id="history-count"></p>
+      </div>
+    </div>
+    <div id="history-list"></div>
+    <div class="card empty-state" id="history-empty" style="display:none">
+      <div class="empty-icon">📭</div>
+      <div class="empty-sub">Ešte žiadne tréningy</div>
+    </div>
+  </div>
+
+  <!-- PROGRESS TAB -->
+  <div id="tab-progress" class="tab-content">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Progress</h1>
+        <p class="page-sub">Grafy a rekordy</p>
+      </div>
+    </div>
+    <div class="card" id="prs-card">
+      <div class="card-label">🏆 Osobné rekordy (e1RM)</div>
+      <div id="prs-list"></div>
+    </div>
+    <div class="card" id="chart-card" style="display:none">
+      <div class="card-label">📈 Graf vývoja</div>
+      <div class="ex-selector" id="chart-ex-selector"></div>
+      <div class="metric-selector">
+        <button class="metric-btn active" data-metric="e1rm" onclick="setMetric('e1rm')">e1RM</button>
+        <button class="metric-btn" data-metric="volume" onclick="setMetric('volume')">Objem</button>
+        <button class="metric-btn" data-metric="weight" onclick="setMetric('weight')">Max váha</button>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="progress-chart"></canvas>
+      </div>
+      <p class="chart-hint" id="chart-hint" style="display:none">Potrebuješ aspoň 2 tréningy s týmto cvikom</p>
+    </div>
+    <div class="card empty-state" id="progress-empty" style="display:none">
+      <div class="empty-icon">📊</div>
+      <div class="empty-sub">Zaznamenaj tréningy pre zobrazenie progressu</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ EXERCISE PICKER -->
+<div id="picker-overlay" class="modal-overlay hidden">
+  <div class="picker-box">
+    <div class="picker-header">
+      <span>Vyber cvik</span>
+      <button onclick="closePicker()" class="modal-close">✕</button>
+    </div>
+    <div class="picker-search-wrap">
+      <input id="picker-search" class="picker-search" type="text" placeholder="Hľadaj cvik..." oninput="filterExercises()"/>
+    </div>
+    <div class="group-tabs" id="group-tabs"></div>
+    <div class="add-custom-wrap">
+      <div id="custom-collapsed">
+        <button class="btn-add-custom" onclick="showCustomForm()">+ Vlastný cvik</button>
+      </div>
+      <div id="custom-form" style="display:none">
+        <div class="custom-form-inner">
+          <input id="custom-name" type="text" placeholder="Názov cviku" class="field-inp"/>
+          <select id="custom-group" class="field-inp"></select>
+          <div class="custom-form-btns">
+            <button class="btn-ghost btn-sm" onclick="hideCustomForm()">Zruš</button>
+            <button class="btn-primary btn-sm" onclick="addCustomExercise()">Pridaj</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="picker-list" class="picker-list"></div>
+  </div>
+</div>
+
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
